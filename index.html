@@ -74,7 +74,7 @@ textarea{width:min(86vw,340px);height:64px;border-radius:10px;border:1px solid #
 <textarea id="o2" placeholder="3. Сюда вставь код-ответ от друга"></textarea><button class="btn" id="ac">4. Подключить</button></div>
 <div id="gs" style="display:none;flex-direction:column;align-items:center;gap:10px">
 <textarea id="g1" placeholder="1. Сюда вставь код приглашения от хозяина"></textarea><button class="btn" id="mka">2. Создать код-ответ</button><textarea id="g2" readonly placeholder="Код-ответ — отправь его хозяину"></textarea><button class="btn s" id="c2">📋 Копировать код-ответ</button></div>
-<div class="sm" id="st">Не подключено</div><button class="btn" id="go" style="display:none">▶ Начать игру</button>
+<input id="tip" placeholder="Мой Tailscale IP (например 100.64.1.2)" inputmode="decimal" autocomplete="off" style="width:min(86vw,340px);padding:11px;border-radius:10px;border:1px solid #fff4;background:#120a26;color:#9ff;font-size:15px;user-select:text;-webkit-user-select:text"><button class="btn s" id="ts">🛰 Tailscale-режим (нужен микрофон — только для сети)</button><div class="sm" id="st">Не подключено</div><button class="btn" id="go" style="display:none">▶ Начать игру</button>
 <button class="btn s" id="mb">← Назад</button></div>
 
 <div class="scr" id="end"><h1 id="et"></h1><div class="sm" id="es"></div><button class="btn" id="ag">↻ Ещё раз</button><button class="btn s" id="em">В меню</button></div>
@@ -295,15 +295,24 @@ o.position.set(b.x,0,b.z)}
 // network
 let pc=null;const send=o=>{if(G.ch&&G.ch.readyState=='open')G.ch.send(JSON.stringify(o))};
 const enc=d=>btoa(JSON.stringify(d)),dec=s=>JSON.parse(atob(s.trim()));
-const mkPC=()=>new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
-const waitIce=p=>new Promise(r=>{if(p.iceGatheringState=='complete')return r();p.addEventListener('icegatheringstatechange',()=>{if(p.iceGatheringState=='complete')r()});setTimeout(r,4500)});
+const ICE=[{urls:['stun:stun.l.google.com:19302','stun:stun1.l.google.com:19302','stun:stun.cloudflare.com:3478']},{urls:['turn:openrelay.metered.ca:80','turn:openrelay.metered.ca:443','turns:openrelay.metered.ca:443?transport=tcp'],username:'openrelayproject',credential:'openrelayproject'}];
+const mkPC=()=>{if(pc)try{pc.close()}catch(e){}const p=new RTCPeerConnection({iceServers:ICE,iceCandidatePoolSize:4});
+p.oniceconnectionstatechange=()=>{const s=p.iceConnectionState;if(s=='checking')$('st').textContent='Соединяюсь… (проверка маршрутов)';else if(s=='failed')$('st').textContent='❌ Не удалось соединиться. Включи «Tailscale-режим» у обоих и создай коды заново.';else if(s=='disconnected')toast('Связь прерывается…')};return p};
+const okSdp=s=>/ typ (srflx|relay)/.test(s)||/candidate:\S+ \d+ udp \d+ (\d{1,3}\.){3}\d{1,3} \d+ typ host/.test(s);
+const waitIce=p=>new Promise(r=>{if(p.iceGatheringState=='complete')return r();p.addEventListener('icegatheringstatechange',()=>{if(p.iceGatheringState=='complete')r()});setTimeout(r,10000)});
 function setupCh(c){G.ch=c;c.onopen=()=>{$('st').textContent='✅ Подключено!';if(G.m2=='host')$('go').style.display='block';else $('st').textContent='✅ Подключено! Ждём старта хозяина…'};c.onmessage=e=>onMsg(JSON.parse(e.data));c.onclose=()=>toast('Соединение потеряно')}
 $('th').onclick=()=>{SFX.click();G.m2='host';$('th').classList.add('on');$('tg').classList.remove('on');$('hs').style.display='contents';$('gs').style.display='none'};
 $('tg').onclick=()=>{SFX.click();G.m2='guest';$('tg').classList.add('on');$('th').classList.remove('on');$('hs').style.display='none';$('gs').style.display='flex'};
 $('b2').addEventListener('click',()=>$('th').click());
-$('mk').onclick=async()=>{try{$('st').textContent='Создаю приглашение…';pc=mkPC();setupCh(pc.createDataChannel('g'));await pc.setLocalDescription(await pc.createOffer());await waitIce(pc);$('o1').value=enc(pc.localDescription);$('st').textContent='Скопируй код и отправь другу (Telegram/WhatsApp — как удобно)'}catch(e){$('st').textContent='Ошибка: '+e.message}};
-$('mka').onclick=async()=>{try{$('st').textContent='Создаю код-ответ…';pc=mkPC();pc.ondatachannel=e=>setupCh(e.channel);await pc.setRemoteDescription(dec($('g1').value));await pc.setLocalDescription(await pc.createAnswer());await waitIce(pc);$('g2').value=enc(pc.localDescription);$('st').textContent='Скопируй код-ответ и отправь хозяину'}catch(e){$('st').textContent='Ошибка: '+e.message}};
+$('mk').onclick=async()=>{try{$('st').textContent='Создаю приглашение…';pc=mkPC();setupCh(pc.createDataChannel('g'));await pc.setLocalDescription(await pc.createOffer());await waitIce(pc);$('o1').value=enc(addTs(pc.localDescription));$('st').textContent=okSdp(pc.localDescription.sdp)?'Скопируй код и отправь другу (Telegram/WhatsApp — как удобно)':'⚠ Нет сетевых маршрутов в коде. Включи «Tailscale-режим» или проверь интернет и создай код заново'}catch(e){$('st').textContent='Ошибка: '+e.message}};
+$('mka').onclick=async()=>{try{$('st').textContent='Создаю код-ответ…';pc=mkPC();pc.ondatachannel=e=>setupCh(e.channel);await pc.setRemoteDescription(dec($('g1').value));await pc.setLocalDescription(await pc.createAnswer());await waitIce(pc);$('g2').value=enc(addTs(pc.localDescription));$('st').textContent=okSdp(pc.localDescription.sdp)?'Скопируй код-ответ и отправь хозяину':'⚠ Нет сетевых маршрутов в коде. Включи «Tailscale-режим» или проверь интернет и создай код заново'}catch(e){$('st').textContent='Ошибка: '+e.message}};
 $('ac').onclick=async()=>{try{await pc.setRemoteDescription(dec($('o2').value));$('st').textContent='Соединяюсь…'}catch(e){$('st').textContent='Ошибка: '+e.message}};
+$('ts').onclick=async()=>{try{const m=await navigator.mediaDevices.getUserMedia({audio:true});m.getTracks().forEach(t=>t.stop());$('ts').textContent='✅ Tailscale-режим включён';$('st').textContent='Теперь (у обоих!) создайте коды заново — они будут содержать адрес Tailscale'}catch(e){$('st').textContent='Нет доступа к микрофону: '+e.message}};
+const tipEl=$('tip');try{tipEl.value=localStorage.getItem('tsip')||''}catch(e){}
+tipEl.oninput=()=>{try{localStorage.setItem('tsip',tipEl.value.trim())}catch(e){}};
+const addTs=d=>{const ip=tipEl.value.trim();let sdp=d.sdp;if(!/^(\d{1,3}\.){3}\d{1,3}$/.test(ip))return{type:d.type,sdp};
+const m=sdp.match(/^a=candidate:\S+ 1 udp \d+ \S+ (\d+) typ host.*$/m);if(!m)return{type:d.type,sdp};
+sdp=sdp.replace(m[0],m[0]+'\r\na=candidate:ts1 1 udp 2130706431 '+ip+' '+m[1]+' typ host generation 0');return{type:d.type,sdp}};
 const cp=id=>()=>{const t=$(id);t.select();navigator.clipboard&&navigator.clipboard.writeText(t.value).catch(()=>{});toast('Скопировано')};$('c1').onclick=cp('o1');$('c2').onclick=cp('g2');
 $('go').onclick=()=>{SFX.click();G.sp=false;fs();send({t:'start',r:G.sel=='hider'?'hunter':'hider'});startRound(G.sel)};
 function applyRemoteTex(urls){if(!G.opp)return;const mats=G.opp.userData.mats;urls.forEach((du,i)=>{const img=new Image();img.onload=()=>{const m=mats[i];if(!m)return;m.ctx.clearRect(0,0,m.canvas.width,m.canvas.height);m.ctx.drawImage(img,0,0,m.canvas.width,m.canvas.height);uploadTex(ren.gl,m)};img.src=du})}
